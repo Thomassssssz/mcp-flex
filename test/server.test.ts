@@ -26,13 +26,20 @@ test('protocolo MCP: listado, consulta sin navegador y error de URL', async () =
   const [a, b] = InMemoryTransport.createLinkedPair();
   try {
     await server.connect(a); await client.connect(b);
-    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['flex_check_session', 'flex_describe_table', 'flex_list_sources', 'flex_list_tables', 'flex_open_browser']);
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['flex_check_session', 'flex_describe_table', 'flex_get_module_summary', 'flex_list_module_files', 'flex_list_modules', 'flex_list_sources', 'flex_list_tables', 'flex_open_browser', 'flex_read_file']);
     const response = await client.callTool({ name: 'flex_check_session', arguments: {} });
     assert.match(JSON.stringify(response), /unknown/);
     assert.equal(session.check().browserOpen, false);
     for (const name of ['flex_list_sources', 'flex_list_tables', 'flex_describe_table']) {
       const response = await client.callTool({ name, arguments: name === 'flex_list_sources' ? {} : {
         sourceAlias: 'Fixture', database: 'fixture_db', ...(name === 'flex_describe_table' ? { table: 'fixture_table' } : {}),
+      } });
+      assert.equal(response.isError, true);
+      assert.match(JSON.stringify(response), /SESSION_UNVERIFIED/);
+    }
+    for (const name of ['flex_list_modules', 'flex_list_module_files', 'flex_read_file', 'flex_get_module_summary']) {
+      const response = await client.callTool({ name, arguments: {
+        sourceAlias: 'Fixture', ...(name === 'flex_read_file' ? { path: 'modulos/demo/php/ver_demo.php' } : name === 'flex_list_modules' ? {} : { module: 'demo' }),
       } });
       assert.equal(response.isError, true);
       assert.match(JSON.stringify(response), /SESSION_UNVERIFIED/);
@@ -77,7 +84,7 @@ test('servidor compilado funciona por stdio', async () => {
   const transport = new StdioClientTransport({ command: process.execPath, args: ['dist/index.js'] });
   try {
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 5);
+    assert.equal((await client.listTools()).tools.length, 9);
     const response = await client.callTool({ name: 'flex_check_session', arguments: {} });
     assert.match(JSON.stringify(response), /unknown/);
   } finally { await client.close(); }

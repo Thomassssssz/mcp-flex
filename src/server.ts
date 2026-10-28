@@ -1,7 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { BrowserSession } from './browser.js';
-import { FlexReader, ReadError } from './flex-reader.js';
+import { ReadError } from './flex-reader.js';
+import { ModuleReader } from './module-reader.js';
 
 function result(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
@@ -9,7 +10,7 @@ function result(value: unknown) {
 
 export function createServer(session: BrowserSession) {
   const server = new McpServer({ name: 'mcp-flex', version: '0.1.0' });
-  const reader = new FlexReader(() => session.pages());
+  const reader = new ModuleReader(() => session.pages());
   const read = async (operation: () => Promise<unknown>) => {
     try { return result(await operation()); }
     catch (error) {
@@ -53,5 +54,27 @@ export function createServer(session: BrowserSession) {
     inputSchema: { ...databaseInput, table: z.string().regex(/^[A-Za-z0-9_]+$/).max(128) },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ sourceAlias, database, table }) => read(() => reader.describeTable(sourceAlias, database, table)));
+  const moduleInput = {
+    sourceAlias: databaseInput.sourceAlias,
+    module: z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/).max(200).describe('Nombre exacto de la carpeta dentro de modulos.'),
+  };
+  const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool('flex_list_modules', {
+    description: 'Lista carpetas reales bajo modulos del editor ya abierto. Solo despliega el árbol; devuelve nombre y ruta lógica.',
+    inputSchema: { sourceAlias: databaseInput.sourceAlias }, annotations: readAnnotations,
+  }, async ({ sourceAlias }) => read(() => reader.listModules(sourceAlias)));
+  server.registerTool('flex_list_module_files', {
+    description: 'Lista recursivamente la estructura real de un módulo existente, distinguiendo carpetas, archivos y áreas php/templates. Falla ante ambigüedades o límites; no crea ni abre archivos.',
+    inputSchema: moduleInput, annotations: readAnnotations,
+  }, async ({ sourceAlias, module }) => read(() => reader.listModuleFiles(sourceAlias, module)));
+  server.registerTool('flex_read_file', {
+    description: 'Abre un archivo existente de un módulo y lee todo el buffer de CodeMirror. Exige editor de solo lectura y sin cambios; nunca toma bloqueos, guarda ni sincroniza.',
+    inputSchema: { sourceAlias: databaseInput.sourceAlias, path: z.string().min(1).max(2048).describe('Ruta lógica completa desde modulos/<módulo>/ hasta el archivo, con sus subcarpetas reales.') },
+    annotations: readAnnotations,
+  }, async ({ sourceAlias, path }) => read(() => reader.readFile(sourceAlias, path)));
+  server.registerTool('flex_get_module_summary', {
+    description: 'Lee los cuatro archivos convencionales que existan y extrae definiciones estáticas de FlexGrid/FlexForm con evidencia. No ejecuta PHP/JS ni infiere configuraciones dinámicas; informa archivos faltantes.',
+    inputSchema: moduleInput, annotations: readAnnotations,
+  }, async ({ sourceAlias, module }) => read(() => reader.getModuleSummary(sourceAlias, module)));
   return server;
 }

@@ -17,7 +17,7 @@ export class ReadError extends Error {
   constructor(public readonly code: string, message: string) { super(message); }
 }
 function fail(code: string, message: string): never { throw new ReadError(code, message); }
-function mismatch(): never { return fail('UI_MISMATCH', 'La interfaz no coincide con la estructura inspeccionada. No se continuó.'); }
+export function mismatch(): never { return fail('UI_MISMATCH', 'La interfaz no coincide con la estructura inspeccionada. No se continuó.'); }
 const clean = (value: string) => value.replace(/\s+/g, ' ').trim();
 const identifier = /^[A-Za-z0-9_]+$/;
 function id(value: string) {
@@ -29,18 +29,18 @@ function isPage(page: Page, path: string) {
   try { const u = new URL(page.url()); return u.origin === 'https://ide.ipf.edu.ar' && u.pathname === path; }
   catch { return false; }
 }
-async function one(locator: Locator, visible = false) {
+export async function one(locator: Locator, visible = false) {
   if (await locator.count() !== 1 || (visible && !await locator.isVisible())) mismatch();
   return locator;
 }
 async function text(locator: Locator) { return clean(await (await one(locator)).innerText({ timeout: 5_000 })); }
-async function label(node: Locator) { return text(node.locator(':scope > span.flextree-node > a.flextree-title')); }
+export async function label(node: Locator) { return text(node.locator(':scope > span.flextree-node > a.flextree-title')); }
 
 export class FlexReader {
   private pending: Promise<unknown> = Promise.resolve();
   constructor(private readonly pages: () => Page[]) {}
 
-  private serialize<T>(operation: () => Promise<T>): Promise<T> {
+  protected serialize<T>(operation: () => Promise<T>): Promise<T> {
     const next = this.pending.catch(() => undefined).then(operation);
     this.pending = next;
     return next;
@@ -122,7 +122,7 @@ export class FlexReader {
       scope: 'current_filtered_page', complete: current === 1 && totalPages === 1 && sources.length === Number(totalMatch[1]) };
   }); }
 
-  private async editor(sourceAlias: string) {
+  protected async editor(sourceAlias: string) {
     if (!sourceAlias.trim() || sourceAlias.length > 200) fail('INVALID_SOURCE', 'Indicá el alias exacto de la fuente.');
     await this.requireSession();
     const matches: Page[] = [];
@@ -140,7 +140,7 @@ export class FlexReader {
     return page;
   }
 
-  private async expand(node: Locator) {
+  protected async expand(node: Locator) {
     await one(node);
     const span = await one(node.locator(':scope > span.flextree-node'));
     if (!(await span.getAttribute('class'))?.split(/\s+/).includes('flextree-expanded')) {
