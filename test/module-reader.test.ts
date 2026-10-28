@@ -96,6 +96,22 @@ test('módulos y archivos mediante DOM aislado sin operaciones de escritura', as
       assert.equal(partial.partial, true); assert.deepEqual(partial.missing, ['modulos/demo/templates/ver_form.html']);
       assert.deepEqual((await state()).forbidden, []);
     });
+    await t.test('diff lee primero y no cambia el buffer ni pulsa botones de escritura', async () => {
+      await reset();
+      const current = contents['12']!.content;
+      const proposed = '// preview only\n' + current;
+      const result = await reader.diffFile('Fixture', 'modulos/demo/php/ver_demo.php', proposed);
+      assert.equal(result.changed, true);
+      assert.equal(result.currentSha256, createHash('sha256').update(current).digest('hex'));
+      assert(result.diff.includes('+// preview only\n'));
+      assert.equal((await reader.readFile('Fixture', 'modulos/demo/php/ver_demo.php')).content, current);
+      assert.deepEqual(await state(), { opened: ['12'], forbidden: [] });
+      assert.equal((await reader.diffFile('Fixture', 'modulos/demo/php/ver_demo.php', current)).changed, false);
+      await expectCode(reader.diffFile('Fixture', 'modulos/demo/php/missing.php', 'x'), 'FILE_NOT_FOUND');
+      await expectCode(reader.diffFile('Fixture', '../outside', 'x'), 'INVALID_PATH');
+      await page.locator('.CodeMirror').evaluate(e => { (e as any).CodeMirror.isClean = () => false; });
+      await expectCode(reader.diffFile('Fixture', 'modulos/demo/php/ver_demo.php', proposed), 'UNSAVED_EDITOR');
+    });
     await t.test('espera contenido demorado después de aparecer el panel', async () => {
       await reset();
       await page.evaluate(() => {

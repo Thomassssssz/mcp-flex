@@ -13,6 +13,7 @@
     "dev": "tsx src/index.ts",
     "test": "tsx --test test/*.test.ts",
     "check": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "browser:install": "playwright install chromium"
   },
   "dependencies": {

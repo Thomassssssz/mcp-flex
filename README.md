@@ -44,6 +44,11 @@ Ejemplo de configuración (adaptar la ruta si se mueve el proyecto):
 - `flex_list_module_files`: requiere además `module`; inspecciona recursivamente carpetas/archivos y distingue php/templates.
 - `flex_read_file`: requiere `sourceAlias` y `path` lógico, por ejemplo `modulos/items/php/ver_items.php`; lee el contenido completo de CodeMirror, con hash y recuentos. Exige archivo en solo lectura y editores sin cambios pendientes.
 - `flex_get_module_summary`: requiere `sourceAlias` y `module`; lee los cuatro archivos convencionales que existan y extrae definiciones de FlexGrid/FlexForm con archivo/línea. Informa faltantes y expresiones dinámicas sin ejecutar PHP/JS.
+- `flex_diff_file`: requiere `sourceAlias`, `path` y `content` propuesto; lee primero el contenido actual y devuelve un diff completo y hashes sin modificar el buffer.
+
+`flex_unlock_file`, `flex_write_file` y `flex_save_file` implementan la toma real, escritura sin autosave y guardado con verificación por reapertura. Requieren un único alcance humano suministrado por el host a `createServer`: fuente, ruta, original íntegro y contenido propuesto exactos. El ciclo solo permite cambio → guardado verificado → restauración → guardado verificado; luego consume el alcance. La copia previa se guarda y verifica en `.playwright/backups/`, excluida de Git. La herramienta no activa desarrollo ni libera archivos automáticamente.
+
+El servidor stdio arranca sin autorización de escritura; no acepta un booleano MCP, archivo o variable de entorno para habilitarla. La primera prueba real ya terminó y no deja autorización para otra modificación. `flex_sync_file` permanece bloqueada: no fue autorizada ni validada y su destino sigue sin comprobarse como ajeno a producción. Los detalles y la evidencia están en la documentación de inspección.
 
 Mantener el gestor autenticado abierto, entrar en Interfaz → Fuentes y pulsar Buscar Fuentes manualmente. Abrir el editor con el engranaje del alias antes de consultar tablas. Ninguna lectura inicia desarrollo, cambia de fuente, crea archivos ni sincroniza. Un DOM inesperado o ambiguo genera un error controlado. Los datos son los de la interfaz cargada y pueden estar desactualizados.
 
@@ -67,6 +72,6 @@ Los tutoriales describen fuentes, tablas, plantillas de módulo, FlexGrid en `ve
 
 La consigna y SQL incluyen dos pares independientes: destinos/paquetes y tipos de traslado/traslados; exigen relaciones, validaciones, búsquedas y cálculos tanto en formulario como en servidor. Son ejemplos para etapas posteriores, no una especificación fija para todas las consignas.
 
-Esta etapa usa selectores observados en una sesión real y permite leer tablas/campos, módulos, estructuras y contenido íntegro de archivos existentes. Abrir archivos puede actualizar el historial «Última Apertura» propio de FlexIDE; las herramientas no guardan contenido, toman bloqueos ni sincronizan. No reproducen endpoints internos ni consultan registros. Creación, escritura, sincronización, instalación y asociación a perfiles quedan pendientes de etapas posteriores.
+Las lecturas usan selectores observados y permiten inspeccionar tablas/campos, módulos, estructuras y archivos completos. Abrir archivos puede actualizar el historial «Última Apertura». La escritura controlada sobre un solo archivo fue validada con guardado, restauración y comparación completa/SHA-256; cualquier otro cambio requiere una nueva autorización explícita. No se reproducen endpoints internos directamente ni se consultan registros. Creación, sincronización, instalación y asociación a perfiles quedan pendientes de etapas posteriores.
 
 Referencias técnicas utilizadas: [MCP SDK v1](https://ts.sdk.modelcontextprotocol.io/server) y [contextos persistentes de Playwright](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context).

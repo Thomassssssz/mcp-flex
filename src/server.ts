@@ -2,21 +2,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { BrowserSession } from './browser.js';
 import { ReadError } from './flex-reader.js';
-import { ModuleReader } from './module-reader.js';
+import { ControlledWriter, type WriteApproval } from './controlled-writer.js';
 
 function result(value: unknown) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
 }
 
-export function createServer(session: BrowserSession) {
+export function createServer(session: BrowserSession, options: { writeApproval?: WriteApproval; backupRoot?: string } = {}) {
   const server = new McpServer({ name: 'mcp-flex', version: '0.1.0' });
-  const reader = new ModuleReader(() => session.pages());
+  const reader = new ControlledWriter(() => session.pages(), options.writeApproval, options.backupRoot);
   const read = async (operation: () => Promise<unknown>) => {
     try { return result(await operation()); }
     catch (error) {
       return { ...result({
         error: error instanceof ReadError ? error.code : 'UI_UNAVAILABLE',
-        message: error instanceof ReadError ? error.message : 'No se pudo verificar la interfaz. No se continuó ni se intentó iniciar sesión.',
+        message: error instanceof ReadError ? error.message : 'No se pudo verificar la interfaz o el resultado. Si hubo una escritura, conservá la copia y verificá el archivo antes de reintentar.',
       }), isError: true };
     }
   };
@@ -76,5 +76,30 @@ export function createServer(session: BrowserSession) {
     description: 'Lee los cuatro archivos convencionales que existan y extrae definiciones estáticas de FlexGrid/FlexForm con evidencia. No ejecuta PHP/JS ni infiere configuraciones dinámicas; informa archivos faltantes.',
     inputSchema: moduleInput, annotations: readAnnotations,
   }, async ({ sourceAlias, module }) => read(() => reader.getModuleSummary(sourceAlias, module)));
+  const fileInput = {
+    sourceAlias: databaseInput.sourceAlias,
+    path: z.string().min(1).max(2048).describe('Ruta lógica de un archivo existente dentro de modulos/.'),
+  };
+  server.registerTool('flex_diff_file', {
+    description: 'Lee primero el archivo real y devuelve el diff completo contra el contenido propuesto y ambos hashes. Solo lectura: no desbloquea, modifica, guarda ni sincroniza.',
+    inputSchema: { ...fileInput, content: z.string() }, annotations: readAnnotations,
+  }, async ({ sourceAlias, path, content }) => read(() => reader.diffFile(sourceAlias, path, content)));
+  const writeAnnotations = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true };
+  server.registerTool('flex_unlock_file', {
+    description: 'Toma un único archivo ya abierto mediante el control real de FlexIDE y verifica que quede editable. Requiere desarrollo activo y alcance humano exacto suministrado por el host; sin alcance falla antes de consultar el navegador.',
+    inputSchema: fileInput, annotations: writeAnnotations,
+  }, async ({ sourceAlias, path }) => read(() => reader.unlockFile(sourceAlias, path)));
+  server.registerTool('flex_write_file', {
+    description: 'Relee y compara el buffer limpio, conserva una copia íntegra local verificada y aplica solo el contenido autorizado al editor exacto. No guarda ni sincroniza; una aprobación solo permite el cambio y su restauración.',
+    inputSchema: { ...fileInput, content: z.string() }, annotations: writeAnnotations,
+  }, async ({ sourceAlias, path, content }) => read(() => reader.writeFile(sourceAlias, path, content)));
+  server.registerTool('flex_save_file', {
+    description: 'Guarda únicamente el buffer modificado autorizado. Verifica XML de éxito para el ID exacto y vuelve a abrir desde el servidor para comparar contenido completo y SHA-256. No sincroniza.',
+    inputSchema: fileInput, annotations: writeAnnotations,
+  }, async ({ sourceAlias, path }) => read(() => reader.saveFile(sourceAlias, path)));
+  server.registerTool('flex_sync_file', {
+    description: 'BLOQUEADA: sincronización no autorizada ni validada; el destino no está comprobado como ajeno a producción.',
+    inputSchema: fileInput, annotations: writeAnnotations,
+  }, async () => ({ ...result({ error: 'WRITE_APPROVAL_REQUIRED', message: 'Sincronización no autorizada. No se tocó el navegador ni se ejecutó Sync.' }), isError: true }));
   return server;
 }

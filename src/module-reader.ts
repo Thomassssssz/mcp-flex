@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Locator, Page } from 'playwright';
 import { FlexReader, ReadError, one, label, mismatch } from './flex-reader.js';
 import { summarizeModule } from './module-summary.js';
+import { contentHash, unifiedDiff } from './file-diff.js';
 
 export const MODULE_UI = {
   root: '#sourceDirectory > ul.flextree-container > li[id="root"]',
@@ -18,7 +19,7 @@ function segment(value: string) {
   }
   return value;
 }
-function filePath(path: string) {
+export function filePath(path: string) {
   const parts = path.split('/');
   if (parts.length < 3 || parts[0] !== 'modulos') throw new ReadError('INVALID_PATH', 'La ruta debe comenzar con modulos/<módulo>/ y terminar en un archivo.');
   parts.forEach(segment);
@@ -179,6 +180,16 @@ export class ModuleReader extends FlexReader {
   }
 
   readFile(sourceAlias: string, path: string) { return this.serialize(() => this.read(sourceAlias, path)); }
+
+  diffFile(sourceAlias: string, path: string, proposedContent: string) { return this.serialize(async () => {
+    // Mismas comprobaciones de existencia, origen, identidad y estado limpio que la lectura real.
+    const current = await this.read(sourceAlias, path);
+    return { sourceAlias, path, currentSha256: current.sha256, proposedSha256: contentHash(proposedContent),
+      changed: current.content !== proposedContent, diff: unifiedDiff(path, current.content, proposedContent),
+      currentCharacters: current.characters, proposedCharacters: proposedContent.length,
+      scope: 'verified_clean_editor_buffer', saved: false, synchronized: false,
+      message: 'Solo comparación. No desbloquea, modifica, guarda ni sincroniza. Un buffer ya abierto puede estar desactualizado respecto del servidor.' };
+  }); }
 
   getModuleSummary(sourceAlias: string, module: string) { return this.serialize(async () => {
     const structure = await this.structure(sourceAlias, module);

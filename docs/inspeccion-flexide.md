@@ -239,3 +239,143 @@ Las cuatro herramientas nuevas se invocaron también mediante MCP sobre la sesi�
 Las pruebas locales usan páginas interceptadas y un contrato sintético de CodeMirror: lectura completa más allá del viewport, Unicode y espacios, hash, pestañas reutilizadas sin recarga, contenido demorado, archivos en la raíz del módulo, archivos convencionales ausentes, rutas inválidas, nombres duplicados, buffers inconsistentes, editores desbloqueados y cambios pendientes. Registran cualquier pulsación de guardar/sincronizar/tomar o teclas para comprobar que no ocurren. El análisis estático tiene pruebas separadas para comentarios, interpolaciones, condiciones, concatenaciones, cadenas escapadas, heredoc y tablas desconocidas/múltiples.
 
 Resultado final: `npm run build`, `npm run check` y las **31 pruebas** de `npm test` pasaron. Al terminar, las 20 instancias reales de CodeMirror seguían con `readOnly === true` e `isClean() === true`. Se detuvo la observación de red y se dejó Chromium abierto.
+
+## Tercera etapa: preparación de escritura controlada (estado previo a la autorización)
+
+**Esta sección conserva el estado de preparación anterior a la autorización.** La prueba autorizada y sus resultados se documentan en la sección siguiente. El usuario exigió mostrar propuesta, diff y restauración y detenerse antes de desbloquear/escribir/guardar/sincronizar.
+
+### Estado de implementación
+
+- `flex_diff_file` está implementada y comprobada mediante MCP en la sesión real. Lee primero el archivo con las mismas verificaciones de la etapa anterior; devuelve diff unificado íntegro y hashes de los dos textos. No cambia el buffer ni toma bloqueos. Un único hunk cubre todos los cambios; no se promete un diff mínimo cuando hay cambios distantes. Conserva distinción entre newline final, CRLF y LF. No escribe copias locales desde esta herramienta de solo lectura.
+- `flex_unlock_file`, `flex_write_file`, `flex_save_file` y `flex_sync_file` están **registradas pero inhabilitadas**: devuelven `WRITE_APPROVAL_REQUIRED` antes de consultar el navegador. No tienen todavía implementación operativa validada. Un argumento como `approved: true` no evita la barrera. No se presenta su registro como validación de escritura.
+- Se agregó `npm run typecheck`. Build, typecheck y **35 pruebas** pasaron. Las pruebas verifican diff completo, hashes, conservación del buffer, rechazo de rutas/archivos inexistentes, cambios pendientes y ausencia de acceso al navegador desde las mutaciones bloqueadas.
+
+### Inspección sin mutaciones
+
+Se inspeccionaron estructuras de detalles_movimientos, lotes, movimientos, proyectos y tipos_movimiento. No aparecieron carpetas/archivos explícitos de pruebas; los PHP auxiliares se llaman onSubmit y validaciones y pertenecen a módulos funcionales. No se eligieron para modificar categorias, unidades, ubicaciones, proveedores ni items, y no se abrieron módulos de perfiles/usuarios para esta búsqueda.
+
+Se leyeron por GET dos assets JavaScript cuyos `src` ya estaban presentes en el DOM: `/ideFlex/scripts/codemirror-ui.js` y `/ideFlex/scripts/functionsIdeFlex.js`. No se ejecutaron sus callbacks de escritura ni se llamó ningún endpoint de mutación. Las rutas descritas a continuación se identificaron **en el código cliente**, no en requests de escritura realizadas durante esta etapa.
+
+### Desbloqueo: mecanismo identificado, prueba pendiente
+
+El control observado es `a.codemirror-ui-button.block`, con `original-title="Tomar (Ctrl+E)"`, acotado a la tabla del archivo verificado. «Desbloquear para editar» significa tomar el bloqueo de edición, no liberar un bloqueo ajeno. El cliente exige permiso `allow_taken`, que el botón no esté `inactive` y que `body` tenga clase `ondevelope`.
+
+En el código del cliente, `block()` prepara POST a `modulos/init/php/block.php` con el ID del archivo y espera XML `result resultid` y `result resulttext`. `onBlock()` cambia `options.blocked` a `blockedByMe` y `mirror.setOption('readOnly', false)`. Esas transiciones están identificadas en el asset, **no comprobadas aún con un desbloqueo real**. No se usará `setOption` desde el MCP para simular la toma de un bloqueo.
+
+La fuente no está en desarrollo activo (`body.ondevelope` ausente). Iniciar desarrollo usa el control observado `.startDevelopment` y, según el código, POST a `modulos/init/php/log.php` con acción `init_develope`. Detenerlo usa `stop_develope` en la misma ruta. No se pulsó ninguno. El inicio y cierre temporal del modo desarrollo deben quedar incluidos en la autorización de la prueba.
+
+### Detección de cambios pendientes
+
+Se mantienen las comprobaciones ya verificadas de CodeMirror. Adicionalmente, en el código del cliente `editorChanged()` agrega `unsaved` a `#showSys<id>`, activa Guardar y establece `options.saved=false` si el historial tiene undo. Estos indicadores se comprobarán conjuntamente durante la prueba autorizada.
+
+El callback de Guardar pone `options.saved=true`, pero no se observó una llamada a `markClean()` en ese callback. Por eso **no se supondrá que `isClean()` basta para certificar un guardado posterior**. Esa semántica y el estado del textarea tras modificar todavía deben comprobarse antes de habilitar la escritura operativa.
+
+### Guardado: mecanismo identificado, verificación pendiente
+
+Control observado: `a.codemirror-ui-button.save`, título `Guardar (Ctrl+S)`, dentro de la tabla del archivo. El código exige permiso `allow_update_code`, desarrollo activo y botón no `inactive`. Lee el buffer e incluye `id` y `value` codificado en POST a `modulos/init/php/save.php`.
+
+Según el callback, la respuesta XML contiene `resultid` y `resulttext`. En su rama considerada exitosa, el cliente elimina `unsaved` de la pestaña, inactiva Guardar, habilita Sync, marca el nodo `unsync` y recarga `fileResume.php`. Error/logout muestra notificación de error. **No se observó todavía una respuesta real de guardado ni su valor positivo de resultid.** HTTP 200 o la mera ausencia de `error` no se considerarán prueba suficiente de persistencia.
+
+La validación autorizada deberá correlacionar petición/respuesta con el ID y contenido del único archivo, verificar señal explícita de éxito y estado del panel, y volver a leer el archivo persistido sin perder cambios pendientes. Un resultado incierto debe detener la secuencia y conservar el original, sin reintentos ciegos.
+
+### Sincronización: bloqueada, destino sin comprobar
+
+Control observado: `a.codemirror-ui-button.sync`, título `Sync`, dentro de la tabla. El código cliente exige permiso `allow_synchronized` y desarrollo activo, y prepara POST a `modulos/init/php/sync.php` con **ID y contenido actual del editor**. No verifica explícitamente `options.saved` en ese método: una herramienta segura tendrá que imponer el guardado previo y rechazar cualquier buffer pendiente por su cuenta.
+
+Según el callback, Sync cambia marcas `unsync`/`sync`, inactiva el botón y actualiza el resumen. Esto no demuestra el destino ni el efecto real de la sincronización. **No está identificado un destino de sincronización que pueda garantizarse ajeno a producción.** No se invocará Sync en la primera prueba propuesta, ni siquiera como parte de una escritura/guardado. Validarla requerirá evidencia del destino y una autorización separada compatible con la prohibición de tocar producción.
+
+### Propuesta concreta para la primera prueba
+
+Fuente: `Grupo-2026-11`.
+
+Ruta: `modulos/tipos_movimiento/templates/ver_grid.html`.
+
+No es un archivo auxiliar descartable: es una plantilla funcional. Se propone como alternativa de menor impacto al no encontrar pruebas explícitas en las carpetas inspeccionadas. El cambio no toca SQL, columnas, formularios, hooks, validaciones ni permisos: añade únicamente un comentario HTML al inicio. Eso reduce el riesgo, pero no demuestra que el módulo carezca de uso ni sustituye la autorización.
+
+Contenido actual relevante:
+
+```html
+<script type="text/javascript">
+	$(document).ready(function(){
+			$("#grid_{modulo}_{idFlex}").flexgrid({
+```
+
+Se leyó el contenido completo: 1005 caracteres, 40 líneas, sin newline final en el buffer. SHA-256 del texto UTF-8: `dc2401a6fe46488b413c07f09ddc1b88c21456c75c29827ff9a2be9e32b22774`.
+
+Cambio único propuesto: anteponer `<!-- MCP-FLEX: prueba controlada de escritura; comentario temporal. -->` y un LF, sin cambiar el resto. Resultado esperado: 1077 caracteres, 41 líneas, SHA-256 `e5fca9f5021b21ced563922b9ed76546871a834f6d303e5d73305db654eb4992`.
+
+Diff completo del cambio, sin contexto (la salida de `flex_diff_file` con tres líneas de contexto está conservada en la copia local):
+
+```diff
+--- a/modulos/tipos_movimiento/templates/ver_grid.html
++++ b/modulos/tipos_movimiento/templates/ver_grid.html
+@@ -0,0 +1,1 @@
++<!-- MCP-FLEX: prueba controlada de escritura; comentario temporal. -->
+```
+
+Se preservó una copia íntegra local del texto anterior y del propuesto en `.local-review/write-probe-df9ccda4-65fd-4443-9ded-f06e8e7fd716.json`, fuera de Git; se volvió a leer la copia y se verificó su hash. El JSON tiene `authorization: pending` y `allowSync: false`. Esta copia local no implica escribir en FlexIDE ni constituye una autorización.
+
+Restauración propuesta: revalidar antes de empezar que el contenido actual coincide con el hash original; autorizar solo esa ruta y esos dos textos (comentario y original); conservar la copia sin sobrescribirla; activar desarrollo y tomar solo ese archivo; aplicar/guardar el comentario y verificar; restaurar el **texto completo original de la copia**, no una eliminación aproximada de líneas; guardar nuevamente y volver a leer desde la interfaz comprobando igualdad exacta y hash original. Finalmente liberar el bloqueo propio y detener el desarrollo si se activó para la prueba. Si cambia el archivo, hay bloqueo ajeno, resultado incierto o DOM ambiguo, detenerse y conservar la copia para recuperación, sin tocar otros archivos.
+
+La prueba **requiere guardar dos veces** (cambio y restauración). **No requiere ni propone sincronizar**. Ningún otro archivo forma parte del alcance. La igualdad propuesta es del contenido textual verificado; fechas de actividad, historial y bytes originales en disco no pueden prometerse idénticos con la evidencia disponible.
+
+Estado al detenerse: propuesta preparada, diff real comprobado, copia íntegra local verificada; no se inició desarrollo, no se tomó ningún archivo, no se modificó ningún buffer, no se guardó ni sincronizó. La validación real de desbloqueo/escritura/guardado y restauración sigue pendiente de autorización explícita.
+
+## Prueba real autorizada de escritura y restauración — resultado
+
+El usuario autorizó explícitamente solo `modulos/tipos_movimiento/templates/ver_grid.html`, con el comentario y la restauración descritos, incluyendo iniciar/detener desarrollo y tomar/liberar ese archivo. Prohibió Sync y cualquier otra modificación. La prueba se completó una sola vez, antes de ejecutar pruebas automatizadas adicionales. No se repitió para probar el código nuevo.
+
+### Preparación y aislamiento
+
+Se comprobó fuente `Grupo-2026-11`, ID real del archivo `359818`, segmentos `tipos_movimiento/templates/ver_grid.html`, contenido completo y hash de la copia. Se cerró/reabrió el archivo sin cambios para obtener una lectura nueva del servidor antes de empezar. Se registraron contenidos y estados de los demás editores para compararlos al terminar; un archivo ajeno estaba tomado por otra persona y no se tocó.
+
+Durante la prueba se instaló una protección temporal de red: los POST de toma, guardado y liberación solo podían afectar ID `359818`; Guardar solo podía enviar uno de los dos textos aprobados. Se permitieron las acciones de inicio/parada para la fuente ID `189` y las rutas de lectura identificadas. Sync, destinos externos y otros endpoints de mutación se bloquearían. No fue necesario bloquear ninguna solicitud: no se produjo ninguna fuera de alcance. La protección se retiró después de restaurar y verificar el estado final.
+
+### Secuencia ejecutada y resultados reales
+
+| Paso | Request generado por la interfaz | Resultado observado |
+| --- | --- | --- |
+| Iniciar desarrollo | POST `/ideFlex/modulos/init/php/log.php`, acción `init_develope` | HTTP 200, mensaje `log del usuario guardado correctamente.`, `body.ondevelope` presente |
+| Tomar archivo | POST `/ideFlex/modulos/init/php/block.php`, ID `359818` | HTTP 200, XML `resultid=359818`, `resulttext=El archivo se bloqueo correctamente`; `readOnly=false`, `blockedByMe`, sin cambio de contenido |
+| Aplicar comentario | Solo `setValue` sobre la instancia CodeMirror verificada del archivo | Buffer igual al texto aprobado; no se llamó a Guardar ni Sync automáticamente |
+| Primer guardado | POST `/ideFlex/modulos/init/php/save.php`, ID `359818`, comentario aprobado | HTTP 200, XML `resultid=359818`, `resulttext=Archivo guardado correctamente.` |
+| Verificar primer guardado | Cierre del archivo guardado y reapertura por UI; POST `/ideFlex/modulos/init/php/file.php` | Contenido completo reabierto igual al propuesto; estado guardado y limpio |
+| Restaurar original | Solo `setValue` del contenido completo de la copia | Buffer igual al original íntegro, no eliminación aproximada del comentario |
+| Segundo guardado | POST `/ideFlex/modulos/init/php/save.php`, ID `359818`, original aprobado | HTTP 200, mismo ID y mensaje positivo explícito de guardado |
+| Verificar restauración | Nuevo cierre/reapertura mediante UI | Igualdad completa con el original y SHA-256 idéntico |
+| Liberar archivo | POST `/ideFlex/modulos/init/php/release.php`, ID `359818` | HTTP 200, XML `resultid=359818`, `resulttext=Archivo liberado correctamente`; `readOnly=true`, `noBlocked` |
+| Detener desarrollo | POST `/ideFlex/modulos/init/php/log.php`, acción `stop_develope` | HTTP 200, mensaje de log correcto, `body.ondevelope` ausente |
+
+También aparecieron las lecturas automáticas ya identificadas `fileResume.php` y `home_advance.php`. No se llamó ningún endpoint directamente para escribir: todas las solicitudes de mutación provinieron de los controles del único archivo y los controles de desarrollo autorizados. No se capturaron cookies, tokens, credenciales ni cuerpos completos de requests/responses en archivos de evidencia.
+
+La respuesta de log tiene `resultid` vacío: para iniciar/parar no se asumió éxito por ese campo, sino por la respuesta y el cambio real del estado `body.ondevelope`. Para tomar, guardar y liberar sí se observó el ID exacto en `resultid`. Los espacios finales de `resulttext` se normalizan al comparar el mensaje, sin relajar la comprobación del ID.
+
+### Comprobación final
+
+- Contenido completo final igual al original: **sí**.
+- SHA-256 final: `dc2401a6fe46488b413c07f09ddc1b88c21456c75c29827ff9a2be9e32b22774`, igual al original.
+- Archivo sin cambios pendientes: **sí**, lectura final limpia; indicador guardado y ausencia de `unsaved` comprobados durante la secuencia.
+- Archivo liberado y en solo lectura: **sí**.
+- Desarrollo detenido: **sí**.
+- Contenidos y estados de los otros editores abiertos iguales a su captura inicial: **sí**.
+- Solicitudes de sincronización: **cero**. No se modificaron bases de datos, módulos, perfiles ni producción.
+
+La evidencia local resumida, sin contenido de otros archivos, está en `.local-review/controlled-write-result.json`; el original y la propuesta siguen en la copia íntegra ya documentada. Ambas rutas están excluidas de Git. Las marcas de actividad/historial de FlexIDE cambiaron por las operaciones autorizadas; la igualdad verificada corresponde al contenido textual, no a esas marcas ni a bytes/codificación en disco que la UI no expone.
+
+### Herramientas operativas y barrera después de la prueba
+
+Se implementó `ControlledWriter` y se conectó a las herramientas MCP `flex_unlock_file`, `flex_write_file` y `flex_save_file`. La prueba real se hizo con Playwright y los controles observados; la implementación MCP se comprobó además con Chromium/HTTP interceptados y un ciclo completo de llamadas MCP local. **No se repitió la escritura real** para probar los wrappers.
+
+El host puede suministrar a `createServer(session, {writeApproval})` un alcance humano efímero con fuente, ruta, original íntegro y propuesta exactos. No se acepta esa aprobación en argumentos MCP, variables de entorno, `.env` o JSON del proyecto. El servidor stdio sigue sin autorización activa por defecto. Esta prueba concluida no habilita futuras operaciones.
+
+La secuencia permitida es `approved → unlocked → written → change_saved → restoration_written → restored`. Solo se permite una toma inicial y dos escrituras con dos guardados. `restored` consume el alcance; un error que deje incierto el resultado pasa a `uncertain` y bloquea reintentos automáticos. Una reaprobación o recuperación requiere intervención explícita: no se habilita un segundo archivo ni un texto diferente mediante flags del cliente. El alcance vive en memoria y no se reanuda después de reiniciar el servidor.
+
+- Desbloquear exige el archivo existente ya abierto, fuente/DOM únicos, desarrollo activo, contenido original exacto y archivo libre. No activa desarrollo ni toma bloqueos ajenos automáticamente. Comprueba mensaje XML para el ID exacto y el estado editable real.
+- Escribir relee el buffer, rechaza cambios pendientes, otros archivos/textos fuera del alcance y rutas fuera de modulos. Guarda una copia íntegra local con ID aleatorio y creación exclusiva en `.playwright/backups/`, vuelve a leerla y comprueba igualdad antes de tocar el editor. Usa únicamente la instancia asociada al ID real; no guarda ni sincroniza.
+- Guardar exige que el buffer pendiente sea el texto aprobado en esa fase. El request debe corresponder al ID y contenido exactos. Se exige el XML y mensaje positivos observados; HTTP 200 o un ID vacío no bastan. Se comprueban las señales de guardado y se cierra/reabre el archivo mediante UI para obtener una lectura nueva, comparar contenido completo y hash. No se fuerza `markClean()` ni se simula el guardado.
+- El inicio/parada de desarrollo y la liberación se verificaron en la prueba autorizada; no se agregaron herramientas de administración masiva para esas operaciones.
+- `flex_sync_file` continúa bloqueada. No se validó ni recibió autorización y el destino sigue sin comprobarse como ajeno a producción.
+
+Las pruebas aisladas cubren el ciclo completo con copia y restauración, ausencia de autosave, contenido no aprobado, autorización agotada, rutas fuera de alcance, desarrollo detenido, bloqueo ajeno, cambios externos, XML de error, ID ajeno, reintentos bloqueados y respuesta positiva cuyo contenido persistido no coincide. Ninguna usa el perfil real ni llega al servidor de FlexIDE.
+
+Validación final: `npm run build`, `npm run typecheck` y las **42 pruebas** de `npm test` pasaron. Chromium quedó abierto con el archivo restaurado/liberado y desarrollo detenido; no queda un alcance de escritura activo para otra prueba.

@@ -26,7 +26,7 @@ test('protocolo MCP: listado, consulta sin navegador y error de URL', async () =
   const [a, b] = InMemoryTransport.createLinkedPair();
   try {
     await server.connect(a); await client.connect(b);
-    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['flex_check_session', 'flex_describe_table', 'flex_get_module_summary', 'flex_list_module_files', 'flex_list_modules', 'flex_list_sources', 'flex_list_tables', 'flex_open_browser', 'flex_read_file']);
+    assert.deepEqual((await client.listTools()).tools.map(t => t.name).sort(), ['flex_check_session', 'flex_describe_table', 'flex_diff_file', 'flex_get_module_summary', 'flex_list_module_files', 'flex_list_modules', 'flex_list_sources', 'flex_list_tables', 'flex_open_browser', 'flex_read_file', 'flex_save_file', 'flex_sync_file', 'flex_unlock_file', 'flex_write_file']);
     const response = await client.callTool({ name: 'flex_check_session', arguments: {} });
     assert.match(JSON.stringify(response), /unknown/);
     assert.equal(session.check().browserOpen, false);
@@ -47,6 +47,17 @@ test('protocolo MCP: listado, consulta sin navegador y error de URL', async () =
     const error = await client.callTool({ name: 'flex_open_browser', arguments: { url: 'file:///tmp/a' } });
     assert.equal(error.isError, true);
     assert.equal(session.check().browserOpen, false);
+    const diff = await client.callTool({ name: 'flex_diff_file', arguments: { sourceAlias: 'Fixture', path: 'modulos/demo/php/ver_demo.php', content: 'proposed' } });
+    assert.equal(diff.isError, true);
+    assert.match(JSON.stringify(diff), /SESSION_UNVERIFIED/);
+    // La barrera no permite ni consultar el navegador, incluso si el cliente intenta un bypass.
+    session.pages = () => { throw new Error('No debe consultar ni tocar el navegador para una mutación bloqueada.'); };
+    for (const name of ['flex_unlock_file', 'flex_write_file', 'flex_save_file', 'flex_sync_file']) {
+      const response = await client.callTool({ name, arguments: { sourceAlias: 'Fixture', path: 'modulos/demo/php/ver_demo.php',
+        ...(name === 'flex_write_file' ? { content: 'proposed' } : {}), approved: true } });
+      assert.equal(response.isError, true);
+      assert.match(JSON.stringify(response), /WRITE_APPROVAL_REQUIRED/);
+    }
   } finally { await client.close(); await server.close(); await session.close(); }
 });
 
@@ -84,7 +95,7 @@ test('servidor compilado funciona por stdio', async () => {
   const transport = new StdioClientTransport({ command: process.execPath, args: ['dist/index.js'] });
   try {
     await client.connect(transport);
-    assert.equal((await client.listTools()).tools.length, 9);
+    assert.equal((await client.listTools()).tools.length, 14);
     const response = await client.callTool({ name: 'flex_check_session', arguments: {} });
     assert.match(JSON.stringify(response), /unknown/);
   } finally { await client.close(); }
