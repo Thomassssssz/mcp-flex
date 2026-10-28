@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.local-tools/
+.local-review/
+.env
+.env.*
+!.env.example
+.playwright/
+playwright-report/
+test-results/
+*.log
