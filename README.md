@@ -40,6 +40,10 @@ Ejemplo de configuración (adaptar la ruta si se mueve el proyecto):
 - `flex_list_sources`: lee la página filtrada actual de Fuentes ya consultada manualmente; incluye ID, alias, nombre, base PROD y paginación.
 - `flex_list_tables`: requiere `sourceAlias` y `database` exactos y un único editor de esa fuente ya abierto; despliega únicamente nodos de consulta del árbol Base de Datos.
 - `flex_describe_table`: requiere además `table`; devuelve nombres y tipos básicos visibles, sin inferir claves, longitudes ni nulabilidad.
+- `flex_list_modules`: requiere `sourceAlias`; lista carpetas y rutas reales bajo modulos.
+- `flex_list_module_files`: requiere además `module`; inspecciona recursivamente carpetas/archivos y distingue php/templates.
+- `flex_read_file`: requiere `sourceAlias` y `path` lógico, por ejemplo `modulos/items/php/ver_items.php`; lee el contenido completo de CodeMirror, con hash y recuentos. Exige archivo en solo lectura y editores sin cambios pendientes.
+- `flex_get_module_summary`: requiere `sourceAlias` y `module`; lee los cuatro archivos convencionales que existan y extrae definiciones de FlexGrid/FlexForm con archivo/línea. Informa faltantes y expresiones dinámicas sin ejecutar PHP/JS.
 
 Mantener el gestor autenticado abierto, entrar en Interfaz → Fuentes y pulsar Buscar Fuentes manualmente. Abrir el editor con el engranaje del alias antes de consultar tablas. Ninguna lectura inicia desarrollo, cambia de fuente, crea archivos ni sincroniza. Un DOM inesperado o ambiguo genera un error controlado. Los datos son los de la interfaz cargada y pueden estar desactualizados.
 
@@ -63,6 +67,6 @@ Los tutoriales describen fuentes, tablas, plantillas de módulo, FlexGrid en `ve
 
 La consigna y SQL incluyen dos pares independientes: destinos/paquetes y tipos de traslado/traslados; exigen relaciones, validaciones, búsquedas y cálculos tanto en formulario como en servidor. Son ejemplos para etapas posteriores, no una especificación fija para todas las consignas.
 
-Esta etapa usa selectores observados en una sesión real y permite leer el inventario de tablas y campos desde el DOM. No reproduce endpoints internos, consulta registros ni escribe archivos FlexIDE. Creación, sincronización, instalación y asociación a perfiles quedan pendientes de etapas posteriores.
+Esta etapa usa selectores observados en una sesión real y permite leer tablas/campos, módulos, estructuras y contenido íntegro de archivos existentes. Abrir archivos puede actualizar el historial «Última Apertura» propio de FlexIDE; las herramientas no guardan contenido, toman bloqueos ni sincronizan. No reproducen endpoints internos ni consultan registros. Creación, escritura, sincronización, instalación y asociación a perfiles quedan pendientes de etapas posteriores.
 
 Referencias técnicas utilizadas: [MCP SDK v1](https://ts.sdk.modelcontextprotocol.io/server) y [contextos persistentes de Playwright](https://playwright.dev/docs/api/class-browsertype#browser-type-launch-persistent-context).
